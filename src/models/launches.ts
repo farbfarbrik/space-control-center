@@ -13,42 +13,52 @@ interface Launch {
 
 const launches = new Map<number, Launch>();
 
-export async function downloadLaunchData() {
-  log.info("Downloading launch data...");
-  const response = await fetch("https://api.spacexdata.com/v3/launches", {
-    method: "GET",
-  });
-
-  if (!response.ok) {
-    log.warning("Problem downloading launch data.");
-    throw new Error("Launch data download failed.");
-  }
-
-  const launchData = await response.json();
-  for (const launch of launchData) {
-    // const payloads = launch["rocket"]["second_stage"]["payloads"];
-    const payloads = launch.rocket.second_stage.payloads;
-
-    const customers = _.flatMap(payloads, (payload: any) => {
-      return payload.customers;
+async function fetchData(url: string) {
+  return fetch(url)
+    .then((res) => {
+      if (!res.ok) {
+        log.warning("Problem downloading launch data.");
+        throw new Error("Launch data download failed.");
+      }
+      return res.json();
+    })
+    .catch((err) => {
+      throw new Error(err.message);
     });
-
-    const flightData = {
-      flightNumber: launch.flight_number,
-      mission: launch.mission_name,
-      rocket: launch.rocket.rocket_name,
-      launchDate: launch.launch_date_unix,
-      upcoming: launch.upcoming,
-      success: launch.launch_success,
-      customers: customers,
-    };
-    launches.set(flightData.flightNumber, flightData);
-
-    log.info(JSON.stringify(flightData));
-  }
 }
 
-await downloadLaunchData();
+const url = "https://api.spacexdata.com/v4";
+const launchData = await fetchData(`${url}/launches`);
+const payloadsData = await fetchData(`${url}/payloads`);
+const rocketsData = await fetchData(`${url}/rockets`);
+
+for (const launch of launchData) {
+  const payloads = launch.payloads;
+
+  const customers = _.flatMap(payloads, (payloadId: string) => {
+    return payloadsData.filter((element: any) =>
+      element.id == payloadId
+    )[0]["customers"];
+  });
+
+  const rocket = rocketsData.filter((element: any) =>
+    element.id == launch.rocket
+  )[0]["name"];
+
+  const flightData = {
+    flightNumber: launch.flight_number,
+    mission: launch.name,
+    rocket: rocket,
+    launchDate: launch.date_unix,
+    upcoming: launch.upcoming,
+    success: launch.success,
+    customers: customers,
+  };
+  launches.set(flightData.flightNumber, flightData);
+
+  log.info(JSON.stringify(flightData));
+}
+
 log.info(`Downloaded data for ${launches.size} SpaceX launches.`);
 
 export function getAll() {
